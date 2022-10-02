@@ -1,0 +1,60 @@
+#version 440
+
+layout(local_size_x_id = 0, local_size_y_id = 1) in; // workgroup size defined with specialization constants. On cpp side there is associated SpecializationInfo entry in PipelineShaderStageCreateInfo
+layout(push_constant) uniform Parameters {           // specify push constants. on cpp side its layout is fixed at PipelineLayout, and values are provided via vk::CommandBuffer::pushConstants()
+   float hue;
+   float saturation;
+   float lightness;
+} params;
+
+layout (binding = 0, rgba8) uniform readonly image2D inputImage;
+layout (binding = 1, rgba8) uniform image2D resultImage;
+
+float Epsilon = 1e-10;
+
+vec3 RGBtoHCV(vec3 rgb)
+{
+    // Based on work by Sam Hocevar and Emil Persson
+    vec4 p = (rgb.g < rgb.b) ? vec4(rgb.bg, -1.0, 2.0 / 3.0) : vec4(rgb.gb, 0.0, -1.0 / 3.0);
+    vec4 q = (rgb.r < p.x) ? vec4(p.xyw, rgb.r) : vec4(rgb.r, p.yzx);
+    float c = q.x - min(q.w, q.y);
+    float h = abs((q.w - q.y) / (6.0 * c + Epsilon) + q.z);
+    return vec3(h, c, q.x);
+}
+
+vec3 rgb2hsl(vec3 rgb)
+{
+    vec3 hcv = RGBtoHCV(rgb);
+    float l = hcv.z - hcv.y * 0.5;
+    float s = hcv.y / (1.0 - abs(l * 2.0 - 1.0) + Epsilon);
+    return vec3(hcv.x, s, l);
+}
+
+vec3 hueToRGB(float hue)
+{
+    float r = abs(hue * 6.0 - 3.0) - 1.0;
+    float g = 2.0 - abs(hue * 6.0 - 2.0);
+    float b = 2.0 - abs(hue * 6.0 - 4.0);
+    return clamp(vec3(r, g, b), 0.0, 1.0);
+}
+
+vec3 hsl2rgb(vec3 hsl)
+{
+    vec3 rgb = hueToRGB(hsl.x);
+    float c = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
+    return (rgb - 0.5) * c + hsl.z;
+}
+
+void main()
+{
+   ivec2 pixelCoords = ivec2(gl_GlobalInvocationID.xy);
+
+    vec4 rgbInput = imageLoad(inputImage, pixelCoords).rgba;  
+    
+    vec3 hslInput = rgb2hsl(rgbInput.rgb);
+    vec3 hslResult = vec3(hslInput.r+params.hue, clamp(hslInput.g+params.saturation, 0, 1), clamp(hslInput.b+params.lightness, 0, 1));
+    
+    vec4 pixel = vec4(hsl2rgb(hslResult), 1.0);
+
+    imageStore(resultImage, pixelCoords, pixel);
+}

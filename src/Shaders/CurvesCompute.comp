@@ -1,0 +1,29 @@
+#version 440
+
+layout(local_size_x_id = 0, local_size_y_id = 1) in; // workgroup size defined with specialization constants. On cpp side there is associated SpecializationInfo entry in PipelineShaderStageCreateInfo
+layout(push_constant) uniform Parameters {           // specify push constants. on cpp side its layout is fixed at PipelineLayout, and values are provided via vk::CommandBuffer::pushConstants()
+    int widthLUT;
+} params;
+
+layout (binding = 0, rgba8) uniform readonly image2D inputImage;
+layout (binding = 1, rgba8) uniform image2D curveLUT;
+layout (binding = 2, rgba8) uniform image2D resultImage;
+
+void main()
+{
+    ivec2 pixelCoords = ivec2(gl_GlobalInvocationID.xy);
+
+    vec4 pixel = imageLoad(inputImage, pixelCoords);
+    
+    ivec2 r = ivec2(pixel.r*params.widthLUT,0);
+    ivec2 g = ivec2(pixel.g*params.widthLUT,0);
+    ivec2 b = ivec2(pixel.b*params.widthLUT,0);
+      
+    vec4 red = imageLoad(curveLUT, r);
+    vec4 green = imageLoad(curveLUT, g);
+    vec4 blue = imageLoad(curveLUT, b);
+
+    vec4 outColor = vec4(red.r, green.g, blue.b, pixel.a);
+
+    imageStore(resultImage, pixelCoords, outColor);
+}

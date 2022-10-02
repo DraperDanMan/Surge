@@ -1,0 +1,42 @@
+#version 440
+
+layout(local_size_x_id = 0, local_size_y_id = 1) in; // workgroup size defined with specialization constants. On cpp side there is associated SpecializationInfo entry in PipelineShaderStageCreateInfo
+layout(push_constant) uniform Parameters {           // specify push constants. on cpp side its layout is fixed at PipelineLayout, and values are provided via vk::CommandBuffer::pushConstants()
+   vec2 inputRange;
+   vec2 outputRange;
+   float gamma;
+   float luminanceOnly;
+} params;
+
+layout (binding = 0, rgba8) uniform readonly image2D inputImage;
+layout (binding = 1, rgba8) uniform image2D resultImage;
+
+void main()
+{
+   ivec2 pixelCoords = ivec2(gl_GlobalInvocationID.xy);
+
+    vec3 rgb = imageLoad(inputImage, pixelCoords).rgb;  
+    vec3 result;
+	if (params.luminanceOnly < 0.5)
+    {
+        // RGB mode
+        rgb = (rgb - params.inputRange.x) / (params.inputRange.y - params.inputRange.x);
+        rgb = pow(clamp(rgb, 0.0, 1.0), vec3(1.0 / params.gamma));
+        result = rgb * (params.outputRange.y - params.outputRange.x) + params.outputRange.x;
+    }
+    else 
+    {
+        // luma mode
+        float luma = dot(rgb, vec3(.25, .5, .25));
+        vec3 chroma = rgb - vec3(luma);
+        luma = (luma - params.inputRange.x) / (params.inputRange.y - params.inputRange.x);
+        luma = pow(clamp(luma, 0.0, 1.0), 1.0 / params.gamma);
+        luma = luma * (params.outputRange.y - params.outputRange.x) + params.outputRange.x;
+        result = vec3(luma) + chroma;
+    }
+
+    //TODO DraperDanMan: support alpha blend modes
+    vec4 pixel = vec4(result, 1.0);
+
+    imageStore(resultImage, pixelCoords, pixel);
+}
